@@ -63,3 +63,37 @@ def _fused_add_rmsnorm_kernel(
     y = x * rstd * w
 
     tl.store(X_ptr + row * stride_m + cols, y, mask=mask)
+
+def _launch_config(N: int):
+    BLOCK_SIZE = triton.next_power_of_2(N)
+    # 经验规则：行越长，用越多 warp 来并行归约
+    num_warps = min(max(BLOCK_SIZE // 256, 4), 16)
+    return BLOCK_SIZE, num_warps
+
+
+def rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
+    """支持任意维度输入，按最后一维归一化。"""
+    orig_shape = x.shape
+    x = x.contiguous().view(-1, orig_shape[-1])
+    M, N = x.shape
+    y = torch.empty_like(x)
+    BLOCK_SIZE, num_warps = _launch_config(N)
+    _rmsnorm_kernel[(M,)](
+        x, weight, y, x.stride(0),
+        N=N, EPS=eps, BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps,
+    )
+    return y.view(orig_shape)
+
+
+def fused_add_rmsnorm(x: torch.Tensor, residual: torch.Tensor, weight: torch.Tensor, eps: float):
+    """原地版本：x 和 residual 都被就地修改，不分配任何新显存。"""
+    orig_shape = x.shape
+    x_2d = x.view(-1, orig_shape[-1])
+    r_2d = residual.view(-1, orig_shape[-1])
+    M, N = x_2d.shape
+    BLOCK_SIZE, num_warps = _launch_config(N)
+    _fused_add_rmsnorm_kernel[(M,)](
+        x_2d, r_2d, weight, x_2d.stride(0),
+        N=N, EPS=eps, BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps,
+    )
+    return x, residual
