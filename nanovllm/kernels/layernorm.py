@@ -4,28 +4,29 @@ import triton.language as tl
 
 @triton.jit
 def _rmsnorm_kernel(
-    X_ptr,  # 输入 [M, N]
-    W_ptr,  # 权重 [N]
-    Y_ptr,  # 输出 [M, N]
-    stride_m,   # 行步长 (以元素为单位)
+    X_ptr,          # 输入 [M, N]
+    W_ptr,          # 权重 [N]
+    Y_ptr,          # 输出 [M, N]
+    stride_m,       # 行步长（以元素为单位）
     N: tl.constexpr,
     EPS: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
     """无 residual 版本：y = x * rsqrt(mean(x^2) + eps) * w"""
     row = tl.program_id(0)
-    cols = tl.arange(0,BLOCK_SIZE)
+    cols = tl.arange(0, BLOCK_SIZE)
     mask = cols < N
 
-    # 一次性把整行读进SRAM，后面所有计算不再读HBM
-    x = tl.load(X_ptr + row * stride_m + cols,mask=mask,other=0.0).to(tl.float32)
+    # 一次性把整行读进 SRAM/寄存器，后面所有计算都不再碰 HBM
+    x = tl.load(X_ptr + row * stride_m + cols, mask=mask, other=0.0).to(tl.float32)
 
-    var = tl.sum(x*x,axis=0)/N
-    rstd = 1.0 / tl.rsqrt(var + EPS)
+    var = tl.sum(x * x, axis=0) / N
+    rstd = 1.0 / tl.sqrt(var + EPS)
 
-    w = tl.load(X_ptr+row, mask=mask, other=0.0).to(tl.float32)
+    w = tl.load(W_ptr + cols, mask=mask, other=0.0).to(tl.float32)
     y = x * rstd * w
-    tl.store(Y_ptr + row * stride_m + cols, y ,mask=mask)
+
+    tl.store(Y_ptr + row * stride_m + cols, y, mask=mask)
 
 
 @triton.jit
