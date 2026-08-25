@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from nanovllm.kernels import USE_TRITON
 from nanovllm.kernels.layernorm import rmsnorm, fused_add_rmsnorm
 
 class RMSNorm(nn.Module):
@@ -18,6 +19,11 @@ class RMSNorm(nn.Module):
         x: torch.Tensor,
         residual: torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        if not USE_TRITON:
+            if residual is None:
+                return self.rms_forward_torch(x)
+            else:
+                return self.add_rms_forward_torch(x, residual)
         if residual is None:
             return rmsnorm(x, self.weight, self.eps)
         else:
