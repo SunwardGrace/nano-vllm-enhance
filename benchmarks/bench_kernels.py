@@ -85,7 +85,7 @@ if __name__ == "__main__":
     print(f"{'kernel':<32} {'latency':>11}  {'eff. BW':>11}  {'util':>6}  {'speedup':>8}")
     w = torch.randn(HIDDEN, dtype=DTYPE, device="cuda")
 
-    for M in [512, 2048, 8192, 32768]:
+    for M in [64, 512, 2048, 8192, 32768]:
         print(f"\n--- num_tokens = {M} ---")
 
         # === add_rmsnorm ===
